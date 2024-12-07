@@ -1,0 +1,10 @@
+mappers:
+  - address: localhost
+    port: 9000
+  - address: localhost
+    port: 9001
+reducers:
+  - address: localhost
+    port: 9003
+  address: localhost
+  port: 9005

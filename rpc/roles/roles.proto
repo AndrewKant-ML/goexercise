@@ -1,0 +1,24 @@
+syntax="proto3";
+
+package rpc.roles;
+
+option go_package="it.uniroma2.dicii/rpc/roles";
+
+enum Role {
+  ROLE_UNKNOWN = 0;
+  MAPPER = 1;
+  REDUCER = 2;
+}
+
+message RoleAssignment {
+  Role role = 1;
+  string message = 2;
+}
+
+message RoleAssignmentResponse {
+  string message = 1;
+}
+
+service RoleService {
+  rpc AssignRole(RoleAssignment) returns (RoleAssignmentResponse);
+}

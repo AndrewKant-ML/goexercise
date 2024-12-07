@@ -1,0 +1,18 @@
+master:
+  - address: localhost
+    port: 8000
+workers:
+  - address: localhost
+    port: 9000
+  - address: localhost
+    port: 9001
+  - address: localhost
+    port: 9002
+  - address: localhost
+    port: 9003
+  - address: localhost
+    port: 9004
+  - address: localhost
+    port: 9005
+mappers_number: 4
+reducers_number: 2
