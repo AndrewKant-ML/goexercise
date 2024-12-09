@@ -10,7 +10,7 @@ import (
 // Host holds a host's address and port number
 type Host struct {
 	Address string `mapstructure:"address"`
-	Port    int    `mapstructure:"port"`
+	Port    int64  `mapstructure:"port"`
 }
 
 // Config holds the hosts in the configuration

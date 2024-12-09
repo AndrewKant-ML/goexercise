@@ -10,9 +10,17 @@ enum Role {
   REDUCER = 2;
 }
 
+message ReducerInfo {
+  string address = 1;
+  int64 port = 2;
+  int32 min = 3;
+  int32 max = 4;
+}
+
 message RoleAssignment {
   Role role = 1;
   string message = 2;
+  repeated ReducerInfo reducerInfo = 3;
 }
 
 message RoleAssignmentResponse {

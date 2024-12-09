@@ -1,0 +1,17 @@
+syntax="proto3";
+
+package rpc.sync;
+
+option go_package="it.uniroma2.dicii/rpc/sync";
+
+message Completion {
+
+}
+
+message CompletionResponse {
+  string message = 1;
+}
+
+service BarrierService {
+  rpc SendCompletion (Completion) returns (CompletionResponse);
+}
