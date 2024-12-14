@@ -1,6 +1,8 @@
+mappers_number: 3
+reducers_number: 2
 master:
-  - address: localhost
-    port: 8000
+  address: localhost
+  port: 8000
 workers:
   - address: localhost
     port: 9000
@@ -12,7 +14,3 @@ workers:
     port: 9003
   - address: localhost
     port: 9004
-  - address: localhost
-    port: 9005
-mappers_number: 4
-reducers_number: 2

@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"it.uniroma2.dicii/goexercise/config"
 	"it.uniroma2.dicii/goexercise/log"
+	"it.uniroma2.dicii/goexercise/rpc/mapreduce"
 	"it.uniroma2.dicii/goexercise/rpc/roles"
 	"math/rand"
 	"sort"
@@ -51,6 +52,8 @@ func Start() {
 		log.Error("unable to initialize master", err)
 		return
 	}
+
+	sendData()
 }
 
 // initialize retrieves the workers configuration needed to the master to operate
@@ -67,12 +70,7 @@ func initialize() error {
 	initWorkersStruct(mappersNumber, reducersNumber)
 	minValue, maxValue = generateRandomIntegers(100)
 
-	// Using a WaitGroup to synchronize multiple goroutines at once
-	var wg sync.WaitGroup
-	assignWorkerRoles(allWorkers, &wg)
-	wg.Wait()
-
-	sendData()
+	assignWorkerRoles(allWorkers)
 	return err
 }
 
@@ -110,13 +108,14 @@ func generateRandomIntegers(N int) (min, max int) {
 // assignWorkerRoles assign a role to each worker
 // Master assign first reducers roles, then mappers roles. This is needed in
 // order to pass reducers information to mappers
-func assignWorkerRoles(hostList *[]config.Host, wg *sync.WaitGroup) {
-	var addr string
-	for _, w := range *hostList {
+func assignWorkerRoles(hostList *[]config.Host) {
+	var wg sync.WaitGroup
+	for _, w := range (*hostList)[:workers.reducersNumber] {
 		wg.Add(1)
-		go func() {
+		go func(w config.Host) {
 			defer wg.Done()
-			addr = fmt.Sprintf("%s:%d", w.Address, w.Port)
+			log.Info(fmt.Sprintf("Assigning role to %s:%d", w.Address, w.Port))
+			addr := fmt.Sprintf("%s:%d", w.Address, w.Port)
 			conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			if err != nil {
 				log.ErrorMessage(fmt.Sprintf("Unable to connect to worker at address (%s)", addr))
@@ -134,30 +133,66 @@ func assignWorkerRoles(hostList *[]config.Host, wg *sync.WaitGroup) {
 			var res *roles.RoleAssignmentResponse
 			workers.mu.Lock()
 			defer workers.mu.Unlock()
-			if len(workers.reducers) < workers.reducersNumber {
-				res, err = client.AssignRole(context.Background(), &roles.RoleAssignment{Role: roles.Role_REDUCER})
-				if err == nil {
-					workers.reducers = append(workers.reducers, &w)
-				}
-			} else if len(workers.mappers) < workers.mappersNumber {
-				res, err = client.AssignRole(context.Background(), &roles.RoleAssignment{Role: roles.Role_MAPPER})
-				if err == nil {
-					workers.mappers = append(workers.mappers, &mapper{
-						host:         &w,
-						reducersInfo: getReducersInfo(),
-					})
-				}
-			} else {
-				res, err = client.AssignRole(context.Background(), &roles.RoleAssignment{Role: roles.Role_ROLE_UNKNOWN})
+
+			res, err = client.AssignRole(context.Background(), &roles.RoleAssignment{Role: roles.Role_REDUCER})
+			if err == nil {
+				workers.reducers = append(workers.reducers, &w)
 			}
+
 			if err != nil {
 				log.ErrorMessage(fmt.Sprintf("Unable to assign role to worker at address (%s)", addr))
 				log.ErrorMessage(res.GetMessage())
 			} else {
 				log.Info(res.GetMessage())
 			}
-		}()
+		}(w)
 	}
+	wg.Wait()
+
+	reducersInfo := getReducersInfo()
+	for _, w := range (*hostList)[workers.reducersNumber:] {
+		wg.Add(1)
+		go func(w config.Host) {
+			defer wg.Done()
+			log.Info(fmt.Sprintf("Assigning role to %s:%d", w.Address, w.Port))
+			addr := fmt.Sprintf("%s:%d", w.Address, w.Port)
+			conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			if err != nil {
+				log.ErrorMessage(fmt.Sprintf("Unable to connect to worker at address (%s)", addr))
+				return
+			}
+
+			defer func(conn *grpc.ClientConn) {
+				err := conn.Close()
+				if err != nil {
+					log.Error(fmt.Sprintf("Error closing grpc connection to %v", addr), err)
+				}
+			}(conn)
+
+			client := roles.NewRoleServiceClient(conn)
+			var res *roles.RoleAssignmentResponse
+			workers.mu.Lock()
+			defer workers.mu.Unlock()
+
+			res, err = client.AssignRole(context.Background(), &roles.RoleAssignment{Role: roles.Role_MAPPER})
+			if err == nil {
+				workers.mappers = append(workers.mappers, &mapper{host: &w, reducersInfo: reducersInfo})
+			}
+
+			if err != nil {
+				log.ErrorMessage(fmt.Sprintf("Unable to assign role to worker at address (%s)", addr))
+				log.ErrorMessage(res.GetMessage())
+			} else {
+				log.Info(res.GetMessage())
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	workers.mu.Lock()
+	defer workers.mu.Unlock()
+	log.Info(fmt.Sprintf("Mappers: %#v", workers.mappers))
+	log.Info(fmt.Sprintf("Reducers: %#v", workers.reducers))
 }
 
 // getReducersInfo build and returns a roles.ReducerInfo
@@ -179,12 +214,54 @@ func getReducersInfo() []roles.ReducerInfo {
 			Max:     int32(reducerRangeSize*(i+1) - 1),
 		}
 	}
+	log.Info(fmt.Sprintf("Reducers: %#v", ret))
 	return ret
 }
 
 // sendData sends data to mappers
 func sendData() {
-	// TODO send data
+	slices := splitSlice(numbers, workers.mappersNumber)
+	log.Info(fmt.Sprintf("Sending %d slices: %v", len(slices), slices))
+	for i, slice := range slices {
+		go func(slice []int) {
+			w := workers.mappers[i]
+			addr := fmt.Sprintf("%s:%d", w.host.Address, w.host.Port)
+			log.Info(fmt.Sprintf("Sending data to %s", addr))
+			conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			if err != nil {
+				log.ErrorMessage(fmt.Sprintf("Unable to connect to worker at address (%s)", addr))
+				return
+			}
+
+			defer func(conn *grpc.ClientConn) {
+				err := conn.Close()
+				if err != nil {
+					log.Error(fmt.Sprintf("Error closing grpc connection to %v", addr), err)
+				}
+			}(conn)
+
+			client := mapreduce.NewMapperServiceClient(conn)
+			stream, err := client.Map(context.Background())
+			if err != nil {
+				log.Error(fmt.Sprintf("Unable to open stream to %s", addr), err)
+				return
+			}
+
+			for _, value := range slice {
+				err := stream.Send(&mapreduce.Number{Num: int32(value)})
+				if err != nil {
+					log.Error(fmt.Sprintf("Unable to send data to %s", addr), err)
+				}
+			}
+
+			// Close the stream to signal that the client is done sending
+			resp, err := stream.CloseAndRecv()
+			if err != nil {
+				log.Error("failed to receive response: %v", err)
+			}
+			log.Info(resp.GetMessage())
+		}(slice)
+	}
 }
 
 // splitSlice splits a slice into N parts

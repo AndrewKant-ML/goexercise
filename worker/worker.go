@@ -62,6 +62,7 @@ func (w *workerService) AssignRole(_ context.Context, assignment *roles.RoleAssi
 				assignedRole.reducers = &reducers
 			}
 		}
+		log.Info(fmt.Sprintf("assigned role: %v", assignment.Role))
 		return &roles.RoleAssignmentResponse{Message: "Role assigned correctly"}, nil
 	} else {
 		return &roles.RoleAssignmentResponse{Message: "Worker role has already been assigned"}, errors.New("unable to assign worker role")
@@ -69,7 +70,13 @@ func (w *workerService) AssignRole(_ context.Context, assignment *roles.RoleAssi
 }
 
 // Start starts the worker server
-func Start(port int) {
+func Start(index int) {
+	workers, err := config.GetWorkers()
+	if err != nil {
+		log.Error("unable to get worker list from configuration", err)
+		return
+	}
+	port := (*workers)[index].Port
 	listen, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		log.Error(fmt.Sprintf("unable to start worker on port %d", port), err)
@@ -82,7 +89,7 @@ func Start(port int) {
 	mapreduce.RegisterMapperServiceServer(worker, &mapperService{})
 	mapreduce.RegisterReducerServiceServer(worker, &reducerService{})
 
-	log.Info("Server is running on port 50051...")
+	log.Info(fmt.Sprintf("Server is running on port %d...", port))
 	if err := worker.Serve(listen); err != nil {
 		log.Error("Failed to serve", err)
 		return

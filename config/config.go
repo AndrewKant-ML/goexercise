@@ -17,8 +17,8 @@ type Host struct {
 type Config struct {
 	Master         Host   `mapstructure:"master"`
 	Workers        []Host `mapstructure:"workers"`
-	mappersNumber  int    `mapstructure:"mappers_number"`
-	reducersNumber int    `mapstructure:"reducers_number"`
+	MappersNumber  int    `mapstructure:"mappers_number"`
+	ReducersNumber int    `mapstructure:"reducers_number"`
 }
 
 const configFile = "config"
@@ -55,7 +55,7 @@ func GetMappersNumber(file ...string) (int, error) {
 		log.Error("Unable to get mappers number from file", err)
 		return -1, err
 	}
-	return config.mappersNumber, nil
+	return config.MappersNumber, nil
 }
 
 // GetReducersNumber retrieves the number of mappers from the current configuration
@@ -65,7 +65,7 @@ func GetReducersNumber(file ...string) (int, error) {
 		log.Error("Unable to get reducers number from file", err)
 		return -1, err
 	}
-	return config.reducersNumber, nil
+	return config.ReducersNumber, nil
 }
 
 // getConfig returns the current configuration
@@ -89,10 +89,16 @@ func initConfiguration(file ...string) (*Config, error) {
 		fileName = configFile
 	} else {
 		fileName = file[0]
+		if len(file) > 1 {
+			for _, f := range file[1:] {
+				viper.AddConfigPath(f)
+			}
+		}
 	}
 	viper.SetConfigName(fileName)
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath(".")
+	viper.AddConfigPath("../config")
 	if err := viper.ReadInConfig(); err != nil {
 		log.Error("Error reading configuration file", err)
 		return nil, err
