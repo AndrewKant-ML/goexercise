@@ -50,16 +50,18 @@ func (w *workerService) AssignRole(_ context.Context, assignment *roles.RoleAssi
 					log.Error("unable to retrieve reducers number from configuration", err)
 					return nil, err
 				}
+				log.Info(fmt.Sprintf("%v", assignment.ReducerInfo))
 				reducers := make([]reducerInfo, reducerNum)
-				for i, ri := range assignment.ReducerInfo {
+				for i, ri := range (*assignment).ReducerInfo {
 					reducers[i] = reducerInfo{
-						address:  ri.Address,
-						port:     ri.Port,
-						minValue: ri.Min,
-						maxValue: ri.Max,
+						address:  (*ri).Address,
+						port:     (*ri).Port,
+						minValue: (*ri).Min,
+						maxValue: (*ri).Max,
 					}
 				}
 				assignedRole.reducers = &reducers
+				log.Info(fmt.Sprintf("assigned %d reducers successfully: %v", reducerNum, *assignedRole.reducers))
 			}
 		}
 		log.Info(fmt.Sprintf("assigned role: %v", assignment.Role))

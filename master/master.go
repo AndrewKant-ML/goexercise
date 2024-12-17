@@ -21,7 +21,7 @@ type reducersList []*config.Host
 
 type mapper struct {
 	host         *config.Host
-	reducersInfo []roles.ReducerInfo
+	reducersInfo []*roles.ReducerInfo
 }
 
 type mappersList []*mapper
@@ -138,14 +138,16 @@ func assignWorkerRoles(hostList *[]config.Host) {
 		}(w)
 	}
 	wg.Wait()
+	log.Info("Successfully assigned reducers roles")
 
 	reducersInfo := getReducersInfo()
+	log.Info(fmt.Sprintf("Reducers info: %v", reducersInfo))
 	for _, w := range (*hostList)[workers.reducersNumber:] {
+		log.Info(fmt.Sprintf("Assigning role to %s:%d", w.Address, w.Port))
+		addr := fmt.Sprintf("%s:%d", w.Address, w.Port)
 		wg.Add(1)
-		go func(w config.Host) {
+		go func(w config.Host, addr string) {
 			defer wg.Done()
-			log.Info(fmt.Sprintf("Assigning role to %s:%d", w.Address, w.Port))
-			addr := fmt.Sprintf("%s:%d", w.Address, w.Port)
 			conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			if err != nil {
 				log.ErrorMessage(fmt.Sprintf("Unable to connect to worker at address (%s)", addr))
@@ -164,7 +166,7 @@ func assignWorkerRoles(hostList *[]config.Host) {
 			workers.mu.Lock()
 			defer workers.mu.Unlock()
 
-			res, err = client.AssignRole(context.Background(), &roles.RoleAssignment{Role: roles.Role_MAPPER})
+			res, err = client.AssignRole(context.Background(), &roles.RoleAssignment{Role: roles.Role_MAPPER, ReducerInfo: reducersInfo})
 			if err == nil {
 				workers.mappers = append(workers.mappers, &mapper{host: &w, reducersInfo: reducersInfo})
 			}
@@ -175,9 +177,10 @@ func assignWorkerRoles(hostList *[]config.Host) {
 			} else {
 				log.Info(res.GetMessage())
 			}
-		}(w)
+		}(w, addr)
 	}
 	wg.Wait()
+	log.Info("Successfully assigned mappers roles")
 
 	workers.mu.Lock()
 	defer workers.mu.Unlock()
@@ -188,16 +191,16 @@ func assignWorkerRoles(hostList *[]config.Host) {
 // getReducersInfo build and returns a roles.ReducerInfo
 // array containing infos about ranges of concern of
 // each reducer
-func getReducersInfo() []roles.ReducerInfo {
+func getReducersInfo() []*roles.ReducerInfo {
 	rangeSize := maxValue - minValue
 
 	workers.mu.Lock()
 	defer workers.mu.Unlock()
 
 	reducerRangeSize := rangeSize / workers.reducersNumber
-	ret := make([]roles.ReducerInfo, len(workers.reducers))
+	ret := make([]*roles.ReducerInfo, len(workers.reducers))
 	for i, r := range workers.reducers {
-		ret[i] = roles.ReducerInfo{
+		ret[i] = &roles.ReducerInfo{
 			Address: r.Address,
 			Port:    r.Port,
 			Min:     int32(reducerRangeSize * i),
