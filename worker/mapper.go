@@ -7,8 +7,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"io"
 	"it.uniroma2.dicii/goexercise/log"
+	sn "it.uniroma2.dicii/goexercise/rpc/barrier"
 	"it.uniroma2.dicii/goexercise/rpc/mapreduce"
-	sn "it.uniroma2.dicii/goexercise/rpc/sync"
+	"sync"
 )
 
 type mapperService struct {
@@ -17,7 +18,7 @@ type mapperService struct {
 
 // Map executes map tasks
 func (m *mapperService) Map(stream grpc.ClientStreamingServer[mapreduce.Number, mapreduce.Status]) error {
-	var received []int32
+	var received []int64
 
 	for {
 		var req, err = stream.Recv()
@@ -29,6 +30,7 @@ func (m *mapperService) Map(stream grpc.ClientStreamingServer[mapreduce.Number, 
 				if err != nil {
 					log.Error("unable to send completion message", err)
 				}
+				sendDataToReducers(splitData())
 			}()
 			return stream.SendAndClose(&mapreduce.Status{
 				Code:    0,
@@ -45,12 +47,15 @@ func (m *mapperService) Map(stream grpc.ClientStreamingServer[mapreduce.Number, 
 
 // sendCompletionMessage sends a completion message to each reducer
 func sendCompletionMessage() error {
+	wg := sync.WaitGroup{}
 	for _, r := range *assignedRole.reducers {
-		go func() {
+		wg.Add(1)
+		go func(wg *sync.WaitGroup) {
 			addr := fmt.Sprintf("%s:%d", r.address, r.port)
 			conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			if err != nil {
 				log.Error(fmt.Sprintf("unable to connect to reducer at address %s", addr), err)
+				return
 			}
 
 			defer func(conn *grpc.ClientConn) {
@@ -67,17 +72,19 @@ func sendCompletionMessage() error {
 				return
 			}
 			log.Info(status.Message)
-		}()
+			defer wg.Done()
+		}(&wg)
 	}
+	wg.Wait()
 	return nil
 }
 
 // splitData divides data to sed to each reducer
-func splitData() {
-	var shuffleAndSort = make(map[reducerInfo][]int32)
+func splitData() *map[reducerInfo][]int64 {
+	var shuffleAndSort = make(map[reducerInfo][]int64)
 	for _, r := range *assignedRole.reducers {
 		//  Init map arrays
-		shuffleAndSort[r] = make([]int32, 0)
+		shuffleAndSort[r] = make([]int64, 0)
 	}
 	// Search for the number queue
 	for _, n := range receivedNumbers {
@@ -89,10 +96,12 @@ func splitData() {
 			shuffleAndSort[*r] = append(shuffleAndSort[*r], n)
 		}
 	}
+	log.Info(fmt.Sprintf("shuffle and sort reducers %v", shuffleAndSort))
+	return &shuffleAndSort
 }
 
 // sendDataToReducers sends divided data to reducers
-func sendDataToReducers(queues *map[reducerInfo][]int32) {
+func sendDataToReducers(queues *map[reducerInfo][]int64) {
 	for r, arr := range *queues {
 		go func() {
 			// Open the connection towards the reducer
@@ -124,7 +133,7 @@ func sendDataToReducers(queues *map[reducerInfo][]int32) {
 }
 
 // getReducerFromNumber finds the reducer whose range include the given number
-func getReducerFromNumber(n int32) *reducerInfo {
+func getReducerFromNumber(n int64) *reducerInfo {
 	for _, r := range *assignedRole.reducers {
 		if r.minValue <= n && n <= r.maxValue {
 			return &r

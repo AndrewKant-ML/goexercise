@@ -7,6 +7,8 @@ import (
 	"it.uniroma2.dicii/goexercise/worker"
 )
 
+var Index int
+
 var rootCmd = &cobra.Command{
 	Use:   "mapreduce",
 	Short: "Starts the MapReduce application",
@@ -27,8 +29,8 @@ var workerCmd = &cobra.Command{
 	Short: "Starts the Master application",
 	Long:  "Starts the Master application",
 	Run: func(cmd *cobra.Command, args []string) {
-		index, _ := cmd.Flags().GetInt("index")
-		worker.Start(index)
+		Index, _ = cmd.Flags().GetInt("index")
+		worker.Start(Index)
 	},
 }
 

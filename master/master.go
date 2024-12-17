@@ -41,8 +41,8 @@ var (
 		reducers: nil,
 		mu:       sync.Mutex{},
 	}
-	numbers            []int
-	minValue, maxValue int
+	numbers            []int64
+	minValue, maxValue int64
 )
 
 // initialize retrieves the workers configuration needed to the master to operate
@@ -80,13 +80,13 @@ func initWorkersStruct(mappersNumber, reducersNumber int) {
 }
 
 // generateRandomIntegers generates an ordered slice of N random integers (min: 0)
-func generateRandomIntegers(N int) (min, max int) {
+func generateRandomIntegers(N int) (min, max int64) {
 	rand.New(rand.NewSource(time.Now().UnixNano()))
-	randomNumbers := make([]int, N)
+	randomNumbers := make([]int64, N)
 	for i := range randomNumbers {
-		randomNumbers[i] = rand.Int() // Random integer starting from 0
+		randomNumbers[i] = rand.Int63() // Random integer starting from 0
 	}
-	numbers = make([]int, N)
+	numbers = make([]int64, N)
 	copy(numbers, randomNumbers)
 
 	sort.Slice(randomNumbers, func(i, j int) bool {
@@ -100,7 +100,7 @@ func generateRandomIntegers(N int) (min, max int) {
 // order to pass reducers information to mappers
 func assignWorkerRoles(hostList *[]config.Host) {
 	var wg sync.WaitGroup
-	for _, w := range (*hostList)[:workers.reducersNumber] {
+	for i, w := range (*hostList)[:workers.reducersNumber] {
 		wg.Add(1)
 		go func(w config.Host) {
 			defer wg.Done()
@@ -124,7 +124,7 @@ func assignWorkerRoles(hostList *[]config.Host) {
 			workers.mu.Lock()
 			defer workers.mu.Unlock()
 
-			res, err = client.AssignRole(context.Background(), &roles.RoleAssignment{Role: roles.Role_REDUCER})
+			res, err = client.AssignRole(context.Background(), &roles.RoleAssignment{Role: roles.Role_REDUCER, Index: int64(i)})
 			if err == nil {
 				workers.reducers = append(workers.reducers, &w)
 			}
@@ -197,17 +197,25 @@ func getReducersInfo() []*roles.ReducerInfo {
 	workers.mu.Lock()
 	defer workers.mu.Unlock()
 
-	reducerRangeSize := rangeSize / workers.reducersNumber
+	reducerRangeSize := rangeSize / int64(workers.reducersNumber)
 	ret := make([]*roles.ReducerInfo, len(workers.reducers))
 	for i, r := range workers.reducers {
-		ret[i] = &roles.ReducerInfo{
-			Address: r.Address,
-			Port:    r.Port,
-			Min:     int32(reducerRangeSize * i),
-			Max:     int32(reducerRangeSize*(i+1) - 1),
+		if i == len(workers.reducers)-1 {
+			ret[i] = &roles.ReducerInfo{
+				Address: r.Address,
+				Port:    r.Port,
+				Min:     reducerRangeSize * int64(i),
+				Max:     maxValue + 1,
+			}
+		} else {
+			ret[i] = &roles.ReducerInfo{
+				Address: r.Address,
+				Port:    r.Port,
+				Min:     reducerRangeSize * int64(i),
+				Max:     reducerRangeSize*int64(i+1) - 1,
+			}
 		}
 	}
-	log.Info(fmt.Sprintf("Reducers: %#v", ret))
 	return ret
 }
 
@@ -220,7 +228,7 @@ func sendData() {
 		wg.Add(1)
 		w := workers.mappers[i]
 		addr := fmt.Sprintf("%s:%d", w.host.Address, w.host.Port)
-		go func(slice []int, addr string) {
+		go func(slice []int64, addr string) {
 			defer wg.Done()
 			log.Info(fmt.Sprintf("Sending data to %s", addr))
 			conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -244,7 +252,7 @@ func sendData() {
 			}
 
 			for _, value := range slice {
-				err := stream.Send(&mapreduce.Number{Num: int32(value)})
+				err := stream.Send(&mapreduce.Number{Num: value})
 				if err != nil {
 					log.Error(fmt.Sprintf("Unable to send data to %s", addr), err)
 				}
@@ -263,18 +271,18 @@ func sendData() {
 }
 
 // splitSlice splits a slice into N parts
-func splitSlice(slice []int, n int) [][]int {
+func splitSlice(slice []int64, n int) [][]int64 {
 	if n <= 0 {
 		return nil
 	}
 	if len(slice) == 0 {
-		return make([][]int, n)
+		return make([][]int64, n)
 	}
 
 	chunkSize := len(slice) / n
 	remainder := len(slice) % n
 
-	var result [][]int
+	var result [][]int64
 	start := 0
 
 	for i := 0; i < n; i++ {

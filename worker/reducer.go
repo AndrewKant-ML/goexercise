@@ -1,23 +1,44 @@
 package worker
 
 import (
+	"context"
 	"fmt"
 	"google.golang.org/grpc"
 	"io"
 	"it.uniroma2.dicii/goexercise/log"
+	"it.uniroma2.dicii/goexercise/rpc/barrier"
 	"it.uniroma2.dicii/goexercise/rpc/mapreduce"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 type reducerService struct {
 	mapreduce.UnimplementedReducerServiceServer
 }
 
+type barrierService struct {
+	barrier.UnimplementedBarrierServiceServer
+}
+
+type completionMessages struct {
+	receivedMessages []bool
+	lastIndex        int
+	mu               *sync.Mutex
+}
+
+var (
+	mappersNumber = 0
+	completions   *completionMessages
+)
+
 // Reduce executes reduce tasks
 func (r *reducerService) Reduce(stream grpc.ClientStreamingServer[mapreduce.Number, mapreduce.Status]) error {
+	// Wait completion reception from all mappers
+	for checkCompletion() {
+	}
 	for {
 		num, err := stream.Recv()
 		if err == io.EOF {
@@ -33,6 +54,27 @@ func (r *reducerService) Reduce(stream grpc.ClientStreamingServer[mapreduce.Numb
 		}
 		receivedNumbers = append(receivedNumbers, num.Num)
 	}
+}
+
+// checkCompletion checks that all mappers have sent their completion message
+func checkCompletion() bool {
+	completions.mu.Lock()
+	defer completions.mu.Unlock()
+
+	var ret = true
+	for _, val := range completions.receivedMessages {
+		ret = ret && val
+	}
+	return ret
+}
+
+// SendCompletion handles completion reception by mappers
+func (b *barrierService) SendCompletion(_ context.Context, _ *barrier.Completion) (*barrier.CompletionResponse, error) {
+	completions.mu.Lock()
+	defer completions.mu.Unlock()
+	completions.receivedMessages[completions.lastIndex] = true
+	completions.lastIndex++
+	return &barrier.CompletionResponse{Message: "Completion message received correctly"}, nil
 }
 
 // orderNumbers reorder received numbers and save them in a local file

@@ -7,6 +7,7 @@ import (
 	"google.golang.org/grpc"
 	"it.uniroma2.dicii/goexercise/config"
 	"it.uniroma2.dicii/goexercise/log"
+	"it.uniroma2.dicii/goexercise/rpc/barrier"
 	"it.uniroma2.dicii/goexercise/rpc/mapreduce"
 	"it.uniroma2.dicii/goexercise/rpc/roles"
 	"net"
@@ -20,8 +21,8 @@ type workerService struct {
 type reducerInfo struct {
 	address  string
 	port     int64
-	minValue int32
-	maxValue int32
+	minValue int64
+	maxValue int64
 }
 
 type role struct {
@@ -32,7 +33,7 @@ type role struct {
 
 var (
 	assignedRole    = role{roles.Role_ROLE_UNKNOWN, sync.Mutex{}, nil}
-	receivedNumbers []int32
+	receivedNumbers []int64
 )
 
 func (w *workerService) AssignRole(_ context.Context, assignment *roles.RoleAssignment) (*roles.RoleAssignmentResponse, error) {
@@ -42,7 +43,6 @@ func (w *workerService) AssignRole(_ context.Context, assignment *roles.RoleAssi
 		// Worker role has not been assigned yet
 		assignedRole.role = assignment.Role
 		if assignment.Role == roles.Role_MAPPER {
-			// Gets reducers info from message
 			if assignedRole.reducers == nil {
 				// Populate reducers info array
 				reducerNum, err := config.GetReducersNumber()
@@ -63,6 +63,18 @@ func (w *workerService) AssignRole(_ context.Context, assignment *roles.RoleAssi
 				assignedRole.reducers = &reducers
 				log.Info(fmt.Sprintf("assigned %d reducers successfully: %v", reducerNum, *assignedRole.reducers))
 			}
+		} else if assignment.Role == roles.Role_REDUCER {
+			// Gets reducers info from message
+			if mappersNumber == 0 {
+				var err error
+				mappersNumber, err = config.GetMappersNumber()
+				if err != nil {
+					log.Error("Unable to retrieve mappers number", err)
+					return nil, err
+				}
+			}
+			log.Info(fmt.Sprintf("mappers number: %d", mappersNumber))
+			completions = &completionMessages{receivedMessages: make([]bool, mappersNumber), lastIndex: 0, mu: &sync.Mutex{}}
 		}
 		log.Info(fmt.Sprintf("assigned role: %v", assignment.Role))
 		return &roles.RoleAssignmentResponse{Message: "Role assigned correctly"}, nil
@@ -90,6 +102,7 @@ func Start(index int) {
 	roles.RegisterRoleServiceServer(worker, &workerService{})
 	mapreduce.RegisterMapperServiceServer(worker, &mapperService{})
 	mapreduce.RegisterReducerServiceServer(worker, &reducerService{})
+	barrier.RegisterBarrierServiceServer(worker, &barrierService{})
 
 	log.Info(fmt.Sprintf("Server is running on port %d...", port))
 	if err := worker.Serve(listen); err != nil {

@@ -5,7 +5,7 @@ package rpc.mapreduce;
 option go_package="it.uniroma2.dicii/rpc/mapreduce";
 
 message Number {
-  int32 num = 1;
+  int64 num = 1;
 }
 
 message Status {

@@ -13,13 +13,13 @@ enum Role {
 message ReducerInfo {
   string address = 1;
   int64 port = 2;
-  int32 min = 3;
-  int32 max = 4;
+  int64 min = 3;
+  int64 max = 4;
 }
 
 message RoleAssignment {
   Role role = 1;
-  string message = 2;
+  int64 index = 2;
   repeated ReducerInfo reducerInfo = 3;
 }
 
