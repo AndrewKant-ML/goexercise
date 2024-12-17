@@ -96,14 +96,16 @@ func splitData() *map[reducerInfo][]int64 {
 			shuffleAndSort[*r] = append(shuffleAndSort[*r], n)
 		}
 	}
-	log.Info(fmt.Sprintf("shuffle and sort reducers %v", shuffleAndSort))
 	return &shuffleAndSort
 }
 
 // sendDataToReducers sends divided data to reducers
 func sendDataToReducers(queues *map[reducerInfo][]int64) {
+	wg := sync.WaitGroup{}
 	for r, arr := range *queues {
-		go func() {
+		wg.Add(1)
+		go func(wg *sync.WaitGroup) {
+			defer wg.Done()
 			// Open the connection towards the reducer
 			var addr = fmt.Sprintf("%s:%d", r.address, r.port)
 			conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -128,8 +130,16 @@ func sendDataToReducers(queues *map[reducerInfo][]int64) {
 					log.Error(fmt.Sprintf("unable to send message %d to reducer at address %s", n, addr), err)
 				}
 			}
-		}()
+
+			// Close the stream to signal that the client is done sending
+			resp, err := stream.CloseAndRecv()
+			if err != nil {
+				log.Error("failed to receive response: %v", err)
+			}
+			log.Info(resp.GetMessage())
+		}(&wg)
 	}
+	wg.Wait()
 }
 
 // getReducerFromNumber finds the reducer whose range include the given number

@@ -222,7 +222,7 @@ func getReducersInfo() []*roles.ReducerInfo {
 // sendData sends data to mappers
 func sendData() {
 	slices := splitSlice(numbers, workers.mappersNumber)
-	log.Info(fmt.Sprintf("Sending %d slices: %v", len(slices), slices))
+	log.Info(fmt.Sprintf("Sending %d slices", len(slices)))
 	wg := sync.WaitGroup{}
 	for i, slice := range slices {
 		wg.Add(1)

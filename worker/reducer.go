@@ -37,11 +37,12 @@ var (
 // Reduce executes reduce tasks
 func (r *reducerService) Reduce(stream grpc.ClientStreamingServer[mapreduce.Number, mapreduce.Status]) error {
 	// Wait completion reception from all mappers
-	for checkCompletion() {
+	for !checkCompletion() {
 	}
 	for {
 		num, err := stream.Recv()
 		if err == io.EOF {
+			log.Info("Correctly received all stream")
 			// End of stream
 			go orderNumbers()
 			return stream.SendAndClose(&mapreduce.Status{
@@ -74,7 +75,10 @@ func (b *barrierService) SendCompletion(_ context.Context, _ *barrier.Completion
 	defer completions.mu.Unlock()
 	completions.receivedMessages[completions.lastIndex] = true
 	completions.lastIndex++
-	return &barrier.CompletionResponse{Message: "Completion message received correctly"}, nil
+	msg := "Completion message received correctly"
+	log.Info(msg)
+	log.Info(fmt.Sprintf("Status: %v", completions))
+	return &barrier.CompletionResponse{Message: msg}, nil
 }
 
 // orderNumbers reorder received numbers and save them in a local file
