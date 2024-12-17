@@ -45,17 +45,6 @@ var (
 	minValue, maxValue int
 )
 
-// Start starts the master server
-func Start() {
-	err := initialize()
-	if err != nil {
-		log.Error("unable to initialize master", err)
-		return
-	}
-
-	sendData()
-}
-
 // initialize retrieves the workers configuration needed to the master to operate
 func initialize() error {
 	allWorkers, err := config.GetWorkers()
@@ -71,6 +60,7 @@ func initialize() error {
 	minValue, maxValue = generateRandomIntegers(100)
 
 	assignWorkerRoles(allWorkers)
+	log.Info("Master successfully initialized")
 	return err
 }
 
@@ -222,10 +212,13 @@ func getReducersInfo() []roles.ReducerInfo {
 func sendData() {
 	slices := splitSlice(numbers, workers.mappersNumber)
 	log.Info(fmt.Sprintf("Sending %d slices: %v", len(slices), slices))
+	wg := sync.WaitGroup{}
 	for i, slice := range slices {
-		go func(slice []int) {
-			w := workers.mappers[i]
-			addr := fmt.Sprintf("%s:%d", w.host.Address, w.host.Port)
+		wg.Add(1)
+		w := workers.mappers[i]
+		addr := fmt.Sprintf("%s:%d", w.host.Address, w.host.Port)
+		go func(slice []int, addr string) {
+			defer wg.Done()
 			log.Info(fmt.Sprintf("Sending data to %s", addr))
 			conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			if err != nil {
@@ -260,8 +253,10 @@ func sendData() {
 				log.Error("failed to receive response: %v", err)
 			}
 			log.Info(resp.GetMessage())
-		}(slice)
+		}(slice, addr)
 	}
+	wg.Wait()
+	log.Info("Data sent correctly")
 }
 
 // splitSlice splits a slice into N parts
@@ -289,4 +284,14 @@ func splitSlice(slice []int, n int) [][]int {
 		start = end
 	}
 	return result
+}
+
+// StartMaster starts the master server
+func StartMaster() {
+	err := initialize()
+	if err != nil {
+		log.Error("unable to initialize master", err)
+		return
+	}
+	sendData()
 }
